@@ -23,35 +23,39 @@ def felhasznalok():
         conn.commit()
         return "User added successfully", 201
 
-@app.route('/felhasznalok/<int:id>', methods=['GET', 'PUT', 'DELETE'])
-def felhasznalo(id):
+@app.route('/felhasznalok/<string:card>', methods=['GET'])
+def felhasznalo(card):
     conn = get_db_connection()
     cursor = conn.cursor()
+    user = cursor.execute('SELECT * FROM felhasznalok WHERE card = ?', (card,)).fetchone()
+    if user is None:
+        return "User not found", 404
+    current_time = datetime.now().time()
+    if user['jog'] == 0 and (current_time < datetime.strptime('08:00', '%H:%M').time() or current_time > datetime.strptime('16:00', '%H:%M').time()):
+        return "Forbidden", 403
+    
+    if user['jog'] == 0 and user['kreditsz'] == 0:
+        return "Not enough credits", 402
 
-    if request.method == 'GET':
-        user = cursor.execute('SELECT * FROM felhasznalok WHERE id = ?', (id,)).fetchone()
-        if user is None:
-            return "User not found", 404
-        return jsonify(dict(user)), 200
-    elif request.method == 'PUT':
-        updated_user = request.json
-        cursor.execute('UPDATE felhasznalok SET nev = ?, kreditsz = ?, jog = ? WHERE id = ?',
-                       (updated_user['nev'], updated_user.get('kreditsz', 0), updated_user['jog'], id))
-        conn.commit()
-        return "User updated successfully", 200
-    elif request.method == 'DELETE':
-        cursor.execute('DELETE FROM felhasznalok WHERE id = ?', (id,))
-        conn.commit()
-        return "User deleted successfully", 200
+    if user['jog'] == 0:
+        conn.execute('UPDATE felhasznalok SET kreditsz = kreditsz - 1 WHERE card = ?', (card,))
+    
+    conn.commit()
+    return jsonify(dict(user)), 200
+    
 
-@app.route('/log', methods=['POST'])
-def log_entry():
+@app.route('/log/<string:card>', methods=['POST'])
+def log_entry(card):
     conn = get_db_connection()
-    new_log = request.json
-    conn.execute('INSERT INTO log (uid, type, time) VALUES (?, ?, ?)',
-                 (new_log['uid'], new_log['type'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    new_log = {
+        'card': str(request.json.get("card")),
+        'type': int(request.json.get('type')),
+        'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    conn.execute('INSERT INTO log (card, type, time) VALUES (?, ?, ?)',
+                 (new_log['card'], new_log['type'], new_log['time']))
     conn.commit()
     return "Log entry added successfully", 201
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=10000)
